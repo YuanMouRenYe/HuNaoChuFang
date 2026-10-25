@@ -45,11 +45,14 @@ public class Player : NetworkBehaviour, IKitchenObjectParent
         }
         if (spawnPoints.Count > 0)
         {
-            int spawnIndex = (int)OwnerClientId;
-            if (spawnIndex >= spawnPoints.Count)
-            {
-                spawnIndex = spawnPoints.Count - 1;
-            }
+            // 出生点由服务端分配、随 PlayerData 同步，不再直接拿 clientId 当索引：
+            // 踢人后再进人时 clientId 会超过 3，夹到最后一个点会和已有玩家重叠。
+            int spawnSlot = KitchenGameMultiplayer.Instance != null
+                ? KitchenGameMultiplayer.Instance.GetSpawnSlot(OwnerClientId)
+                : -1;
+
+            int spawnIndex = spawnSlot >= 0 ? spawnSlot : (int)OwnerClientId;
+            spawnIndex = Mathf.Clamp(spawnIndex, 0, spawnPoints.Count - 1);
 
             transform.position = spawnPoints[spawnIndex];
         }

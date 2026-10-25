@@ -21,6 +21,11 @@ public class KitchenGameMultiplayer : NetworkBehaviour
     private NetworkList<PlayerData> playerDataNetworkList;
     private string playerName;
 
+    // 出生点占用表：只有服务端会写，客户端只读同步下来的 PlayerData.spawnSlot。
+    // 之前用 (int)OwnerClientId 当索引，踢人后新玩家 clientId 会超出 0..3，
+    // 被夹到最后一个点，导致和已有玩家重叠（见 README 的已知问题）。
+    private readonly bool[] spawnSlotInUse = new bool[MAX_PLAYER_AMOUNT];
+
     private void Awake()
     {
         Instance = this;
@@ -31,6 +36,31 @@ public class KitchenGameMultiplayer : NetworkBehaviour
 
         playerDataNetworkList = new NetworkList<PlayerData>();
         playerDataNetworkList.OnListChanged += PlayerDataNetworkList_OnListChanged;
+    }
+
+    private void Start()
+    {
+        EnsureConnectionWatchdog();
+    }
+
+    /// <summary>
+    /// 运行期挂上断线看护（不改场景/预制体）：
+    /// 客户端掉线后按指数退避重连，主机端只做清理不重连。
+    /// </summary>
+    private void EnsureConnectionWatchdog()
+    {
+        if (NetworkManager.Singleton == null)
+        {
+            return;
+        }
+
+        ConnectionWatchdog watchdog = GetComponent<ConnectionWatchdog>();
+        if (watchdog == null)
+        {
+            watchdog = gameObject.AddComponent<ConnectionWatchdog>();
+        }
+
+        watchdog.Bind(NetworkManager.Singleton);
     }
 
     public string GetPlayerName()
@@ -66,6 +96,7 @@ public class KitchenGameMultiplayer : NetworkBehaviour
             if (playerData.clientId == clientId)
             {
                 //this id is disconnected
+                ReleaseSpawnSlot(playerData.spawnSlot);
                 playerDataNetworkList.RemoveAt(i);
             }
         }
@@ -77,6 +108,7 @@ public class KitchenGameMultiplayer : NetworkBehaviour
         {
             clientId = clientId,
             colorId = GetFirstUnusedColorId(),
+            spawnSlot = AllocateSpawnSlot(),
         });
         SetPlayerNameServerRpc(GetPlayerName());
         SetPlayerIdServerRpc(GetLocalPlayerId());
@@ -284,6 +316,37 @@ public class KitchenGameMultiplayer : NetworkBehaviour
             }
         }
         return -1;
+    }
+
+    /// <summary>服务端分配一个空闲出生点，满了就返回 0（理论上连接审批已经挡住了）。</summary>
+    private int AllocateSpawnSlot()
+    {
+        for (int i = 0; i < spawnSlotInUse.Length; i++)
+        {
+            if (!spawnSlotInUse[i])
+            {
+                spawnSlotInUse[i] = true;
+                return i;
+            }
+        }
+
+        Debug.LogWarning("KitchenGameMultiplayer: 出生点已用满，回退到 0");
+        return 0;
+    }
+
+    private void ReleaseSpawnSlot(int slot)
+    {
+        if (slot >= 0 && slot < spawnSlotInUse.Length)
+        {
+            spawnSlotInUse[slot] = false;
+        }
+    }
+
+    /// <summary>任意客户端都能调用：读同步下来的 PlayerData，拿到这名玩家该站哪个出生点。</summary>
+    public int GetSpawnSlot(ulong clientId)
+    {
+        int index = GetPlayerDataIndexFromClientId(clientId);
+        return index < 0 ? -1 : playerDataNetworkList[index].spawnSlot;
     }
 
     public PlayerData GetPlayerDataFromClientId(ulong clientId)

@@ -19,7 +19,7 @@
 ### 1. 克隆仓库
 
 ```bash
-git clone https://github.com/Accommodate111/HuNaoChuFang.git
+git clone https://github.com/YuanMouRenYe/HuNaoChuFang.git
 cd HuNaoChuFang
 ```
 
@@ -116,7 +116,16 @@ git lfs pull
 
 ## 版本记录
 
-### v0.1.0（当前版本）
+### v0.2.0（当前版本）
+
+**改动**
+
+- **修复踢人后出生点重叠**：出生点改由服务端分配并随 `PlayerData.spawnSlot` 同步，玩家离开时归还槽位，不再用 `ClientId` 当索引
+- **盘子视觉对象池**：`PlateCounterVisual` 不再反复 `Instantiate/Destroy`，改走 `TransformPool`，稳态下不再产生新的托管分配
+- **断线看护**：新增 `ConnectionWatchdog`，客户端意外掉线后按指数退避重连（默认 3 次、1.5s 起翻倍、上限 8s），主机端只做清理
+- 目录拼写 `SriptableObjects` → `ScriptableObjects`
+
+### v0.1.0
 
 **功能**
 
@@ -127,9 +136,9 @@ git lfs pull
 - 键位重绑定、音量设置
 - 客户端权威移动 + 服务端权威交互
 
-**已知问题**
+**已修复问题（v0.2.0）**
 
-#### 🔴 踢人后新玩家出生点重叠
+#### ✅ 踢人后新玩家出生点重叠
 
 **现象：** 在四人联机中，Host 踢出一名玩家后，若有新玩家加入，新玩家会刷新到 **第 4 个出生点**（`spawnPoints[3]`），导致该位置出现 **两名玩家重叠**。
 
@@ -164,12 +173,47 @@ Netcode 分配的 `ClientId` 是递增的网络 ID，**不会在踢人后复用*
 
 因此 ClientId=3 和 ClientId=4 的玩家会同时出现在第 4 个出生点。
 
-**计划修复方向：**
+**修复方式（v0.2.0）：**
+
+出生点不再由 `ClientId` 推导，而是服务端维护一张占用表，连接时分配、断开时归还，并把结果写进同步的 `PlayerData.spawnSlot`：
+
+```csharp
+// KitchenGameMultiplayer.cs
+private readonly bool[] spawnSlotInUse = new bool[MAX_PLAYER_AMOUNT];
+
+private int AllocateSpawnSlot()
+{
+    for (int i = 0; i < spawnSlotInUse.Length; i++)
+        if (!spawnSlotInUse[i]) { spawnSlotInUse[i] = true; return i; }
+    return 0;
+}
+
+// Player.cs - OnNetworkSpawn()
+int spawnSlot = KitchenGameMultiplayer.Instance.GetSpawnSlot(OwnerClientId);
+int spawnIndex = spawnSlot >= 0 ? spawnSlot : (int)OwnerClientId;
+spawnIndex = Mathf.Clamp(spawnIndex, 0, spawnPoints.Count - 1);
+```
+
+客户端读的是同步下来的 `PlayerData`，所以每个 peer 算出的位置一致。
+
+**当时的修复方向：**
 
 - 使用 `playerDataNetworkList` 中的槽位索引（0~3）分配出生点，而非 `OwnerClientId`
 - 或在玩家断开时回收并复用槽位编号
 
 ---
+
+## 相对教程的改动
+
+玩法和代码骨架跟着 CodeMonkey 的 *Kitchen Chaos* 教程手写完成；下面这些是教程之外自己实现的部分：
+
+| 模块 | 说明 |
+|---|---|
+| 联机接入 | 连接审批（场景校验 + 房满拒绝）、`NetworkList<PlayerData>` 同步玩家状态、`ServerRpc` 服务端写入 |
+| 出生点分配 | 服务端槽位表 + 同步到 `PlayerData.spawnSlot`，修复踢人后重叠 |
+| 对象池 | `TransformPool` + `PlateCounterVisual` 池化，减少出餐高峰的 GC 分配 |
+| 断线看护 | `ConnectionWatchdog`：指数退避重连、主机端不重连 |
+| 表现层 | 角色颜色选择、键位重绑定、暂停/结算 UI 等 |
 
 ## 项目结构
 
@@ -208,4 +252,4 @@ Assets/
 
 ## 相关链接
 
-- 仓库地址：https://github.com/Accommodate111/HuNaoChuFang
+- 仓库地址：https://github.com/YuanMouRenYe/HuNaoChuFang

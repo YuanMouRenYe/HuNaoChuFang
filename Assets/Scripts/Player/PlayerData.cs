@@ -10,12 +10,14 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
 
     public ulong clientId;
     public int colorId;
+    public int spawnSlot;
     public FixedString128Bytes playerName;
     public FixedString128Bytes playerId;
     public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
     {
         serializer.SerializeValue(ref clientId);
         serializer.SerializeValue(ref colorId);
+        serializer.SerializeValue(ref spawnSlot);
         serializer.SerializeValue(ref playerName);
         serializer.SerializeValue(ref playerId);
     }
@@ -25,6 +27,7 @@ public struct PlayerData : INetworkSerializable, IEquatable<PlayerData>
         return
             clientId == other.clientId &&
             colorId == other.colorId &&
+            spawnSlot == other.spawnSlot &&
             playerName == other.playerName &&
             playerId == other.playerId;
     }
